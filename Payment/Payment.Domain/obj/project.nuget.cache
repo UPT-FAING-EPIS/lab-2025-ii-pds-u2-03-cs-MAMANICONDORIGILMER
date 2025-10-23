@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "YUdtVSM1PRg=",
+  "success": true,
+  "projectFilePath": "C:\\repos\\lab-2025-ii-pds-u2-03-cs-GabrielFMH\\Payment\\Payment.Domain\\Payment.Domain.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\ASISTENTE-TEIN\\.nuget\\packages\\microsoft.build.tasks.git\\8.0.0\\microsoft.build.tasks.git.8.0.0.nupkg.sha512",
+    "C:\\Users\\ASISTENTE-TEIN\\.nuget\\packages\\microsoft.sourcelink.common\\8.0.0\\microsoft.sourcelink.common.8.0.0.nupkg.sha512",
+    "C:\\Users\\ASISTENTE-TEIN\\.nuget\\packages\\microsoft.sourcelink.github\\8.0.0\\microsoft.sourcelink.github.8.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

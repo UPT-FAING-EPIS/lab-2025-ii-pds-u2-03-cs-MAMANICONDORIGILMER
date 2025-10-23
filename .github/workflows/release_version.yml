@@ -1,0 +1,316 @@
+name: Create Version Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  BUILD_CONFIGURATION: 'Release'
+
+jobs:
+  test-and-analyze:
+    name: Test and Analyze Code
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version from tag
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION="${{ inputs.version_tag }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Payment/Payment.sln
+        dotnet restore ATM/ATM.sln
+
+    - name: Build solutions
+      run: |
+        dotnet build Payment/Payment.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+        dotnet build ATM/ATM.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+    - name: Run tests with coverage
+      run: |
+        dotnet test Payment/Payment.sln \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --verbosity normal \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./coverage \
+          --settings coverlet.runsettings
+
+        dotnet test ATM/ATM.sln \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --verbosity normal \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./coverage \
+          --settings coverlet.runsettings
+
+    - name: Generate test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Release Tests Results
+        path: '**/*.trx'
+        reporter: dotnet-trx
+        fail-on-error: true
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage/**/coverage.cobertura.xml
+        flags: release
+        name: codecov-release
+        fail_ci_if_error: false
+
+    - name: SonarCloud Analysis
+      if: env.SONAR_TOKEN != ''
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      run: |
+        dotnet tool install --global dotnet-sonarscanner
+        dotnet-sonarscanner begin \
+          /k:"${{ github.repository }}" \
+          /o:"${{ github.repository_owner }}" \
+          /d:sonar.login="${{ secrets.SONAR_TOKEN }}" \
+          /d:sonar.host.url="https://sonarcloud.io" \
+          /d:sonar.cs.opencover.reportsPaths="./coverage/**/coverage.opencover.xml" \
+          /d:sonar.cs.vstest.reportsPaths="**/*.trx" \
+          /d:sonar.exclusions="**/*Tests.cs" \
+          /d:sonar.test.inclusions="**/*Tests.cs" \
+          /v:"${{ steps.version.outputs.VERSION }}"
+
+        dotnet build Payment/Payment.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+        dotnet build ATM/ATM.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+        dotnet-sonarscanner end /d:sonar.login="${{ secrets.SONAR_TOKEN }}"
+
+  create-packages:
+    name: Create NuGet Packages
+    runs-on: ubuntu-latest
+    needs: test-and-analyze
+    outputs:
+      payment-package-version: ${{ steps.package-info.outputs.payment-version }}
+      atm-package-version: ${{ steps.package-info.outputs.atm-version }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version from tag
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION="${{ inputs.version_tag }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Payment/Payment.sln
+        dotnet restore ATM/ATM.sln
+
+    - name: Create Payment.Domain package
+      run: |
+        cd Payment/Payment.Domain
+        dotnet pack \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --output ../../nuget-packages \
+          -p:PackageVersion=${{ steps.version.outputs.VERSION }} \
+          -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}.git \
+          -p:RepositoryType=git \
+          -p:PublishRepositoryUrl=true \
+          -p:IncludeSymbols=true \
+          -p:SymbolPackageFormat=snupkg
+
+    - name: Create ATM.Domain package
+      run: |
+        cd ATM/ATM.Domain
+        dotnet pack \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --output ../../nuget-packages \
+          -p:PackageVersion=${{ steps.version.outputs.VERSION }} \
+          -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}.git \
+          -p:RepositoryType=git \
+          -p:PublishRepositoryUrl=true \
+          -p:IncludeSymbols=true \
+          -p:SymbolPackageFormat=snupkg
+
+    - name: Get package information
+      id: package-info
+      run: |
+        PAYMENT_PACKAGE=$(ls nuget-packages/Payment.Domain.*.nupkg | head -1)
+        ATM_PACKAGE=$(ls nuget-packages/ATM.Domain.*.nupkg | head -1)
+
+        PAYMENT_VERSION=$(echo $PAYMENT_PACKAGE | sed -n 's/.*\.\([0-9]\+\.[0-9]\+\.[0-9]\+\(-.*\)\?\)\.nupkg/\1/p')
+        ATM_VERSION=$(echo $ATM_PACKAGE | sed -n 's/.*\.\([0-9]\+\.[0-9]\+\.[0-9]\+\(-.*\)\?\)\.nupkg/\1/p')
+
+        echo "payment-version=$PAYMENT_VERSION" >> $GITHUB_OUTPUT
+        echo "atm-version=$ATM_VERSION" >> $GITHUB_OUTPUT
+
+        echo "Payment.Domain version: $PAYMENT_VERSION"
+        echo "ATM.Domain version: $ATM_VERSION"
+
+    - name: Upload packages as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages-${{ steps.version.outputs.VERSION }}
+        path: nuget-packages/*.nupkg
+        retention-days: 90
+
+  publish-to-github-packages:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    needs: create-packages
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Download packages
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages-${{ needs.create-packages.outputs.payment-package-version }}
+        path: ./nuget-packages
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Publish Payment.Domain to GitHub Packages
+      run: |
+        dotnet nuget push "./nuget-packages/Payment.Domain.*.nupkg" \
+          --api-key ${{ secrets.GITHUB_TOKEN }} \
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+          --skip-duplicate
+
+    - name: Publish ATM.Domain to GitHub Packages
+      run: |
+        dotnet nuget push "./nuget-packages/ATM.Domain.*.nupkg" \
+          --api-key ${{ secrets.GITHUB_TOKEN }} \
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+          --skip-duplicate
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [test-and-analyze, create-packages]
+    if: always() && (needs.test-and-analyze.result == 'success')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version from tag
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION="${{ inputs.version_tag }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Download packages
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages-${{ steps.version.outputs.VERSION }}
+        path: ./nuget-packages
+
+    - name: Generate release notes
+      id: release-notes
+      run: |
+        # Get recent commits since last tag
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          if [[ -n "$LAST_TAG" ]]; then
+            COMMITS=$(git log --oneline ${LAST_TAG}..HEAD --grep="feat\|fix\|doc\|refactor\|test" | head -20)
+          else
+            COMMITS=$(git log --oneline -20)
+          fi
+        else
+          COMMITS="Manual release: ${{ steps.version.outputs.VERSION }}"
+        fi
+
+        # Create release notes
+        NOTES="# Release ${{ steps.version.outputs.VERSION }}\n\n"
+        NOTES+="## Changes\n\n"
+        if [[ -n "$COMMITS" ]]; then
+          NOTES+="$COMMITS\n\n"
+        fi
+        NOTES+="## Packages\n\n"
+        NOTES+="- **Payment.Domain** v${{ needs.create-packages.outputs.payment-package-version }}\n"
+        NOTES+="- **ATM.Domain** v${{ needs.create-packages.outputs.atm-package-version }}\n\n"
+        NOTES+="## Installation\n\n"
+        NOTES+="\`\`\`bash\n"
+        NOTES+="dotnet nuget add source --name github \"https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json\"\n\n"
+        NOTES+="dotnet add package Payment.Domain --version ${{ needs.create-packages.outputs.payment-package-version }}\n"
+        NOTES+="dotnet add package ATM.Domain --version ${{ needs.create-packages.outputs.atm-package-version }}\n"
+        NOTES+="\`\`\`\n\n"
+        NOTES+="## Files\n\n"
+        for file in ./nuget-packages/*.nupkg; do
+          if [[ -f "$file" ]]; then
+            filename=$(basename "$file")
+            NOTES+="- \`$filename\`\n"
+          fi
+        done
+
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        echo "$NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: "Release ${{ steps.version.outputs.VERSION }}"
+        body: ${{ steps.release-notes.outputs.RELEASE_NOTES }}
+        files: |
+          ./nuget-packages/*.nupkg
+        generate_release_notes: false
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.VERSION, 'alpha') || contains(steps.version.outputs.VERSION, 'beta') || contains(steps.version.outputs.VERSION, 'rc') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create deployment for packages
+      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      run: |
+        echo "Packages deployed to GitHub Packages:"
+        echo "- Payment.Domain v${{ needs.create-packages.outputs.payment-package-version }}"
+        echo "- ATM.Domain v${{ needs.create-packages.outputs.atm-package-version }}"
+        echo ""
+        echo "Available at: https://nuget.pkg.github.com/${{ github.repository_owner }}/"

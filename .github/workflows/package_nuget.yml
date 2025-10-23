@@ -1,0 +1,245 @@
+name: Build, Test, Analyze and Publish NuGet Packages
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Payment/**/*.cs'
+      - 'Payment/**/*.csproj'
+      - 'ATM/**/*.cs'
+      - 'ATM/**/*.csproj'
+      - '.github/workflows/package_nuget.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Payment/**/*.cs'
+      - 'Payment/**/*.csproj'
+      - 'ATM/**/*.cs'
+      - 'ATM/**/*.csproj'
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  BUILD_CONFIGURATION: 'Release'
+  SOLUTION_PATH: './Payment/Payment.sln'
+
+jobs:
+  test:
+    name: Run Unit Tests and Generate Report
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore ${{ env.SOLUTION_PATH }}
+
+    - name: Build solution
+      run: dotnet build ${{ env.SOLUTION_PATH }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+    - name: Run tests with coverage
+      run: |
+        dotnet test ${{ env.SOLUTION_PATH }} \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --verbosity normal \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./coverage \
+          --settings coverlet.runsettings
+
+    - name: Generate test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Unit Tests Results
+        path: '**/*.trx'
+        reporter: dotnet-trx
+        fail-on-error: true
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      if: github.event_name == 'push'
+      with:
+        file: ./coverage/**/coverage.cobertura.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Install SonarCloud scanner
+      run: |
+        dotnet tool install --global dotnet-sonarscanner
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore ${{ env.SOLUTION_PATH }}
+
+    - name: Build and analyze
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      run: |
+        dotnet-sonarscanner begin \
+          /k:"${{ github.repository }}" \
+          /o:"${{ github.repository_owner }}" \
+          /d:sonar.login="${{ secrets.SONAR_TOKEN }}" \
+          /d:sonar.host.url="https://sonarcloud.io" \
+          /d:sonar.cs.opencover.reportsPaths="./coverage/**/coverage.opencover.xml" \
+          /d:sonar.cs.vstest.reportsPaths="**/*.trx" \
+          /d:sonar.exclusions="**/*Tests.cs" \
+          /d:sonar.test.inclusions="**/*Tests.cs"
+
+        dotnet build ${{ env.SOLUTION_PATH }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+        dotnet-sonarscanner end /d:sonar.login="${{ secrets.SONAR_TOKEN }}"
+
+  pack-payment:
+    name: Pack Payment.Domain
+    runs-on: ubuntu-latest
+    needs: [test, sonarcloud]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore Payment/Payment.sln
+
+    - name: Build Payment.Domain
+      run: |
+        dotnet build Payment/Payment.Domain/Payment.Domain.csproj \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-restore
+
+    - name: Create NuGet package for Payment.Domain
+      run: |
+        cd Payment/Payment.Domain
+        dotnet pack \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --output ../../nuget-packages \
+          -p:PackageVersion=1.0.${{ github.run_number }} \
+          -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}.git \
+          -p:RepositoryType=git \
+          -p:PublishRepositoryUrl=true
+
+    - name: Upload Payment.Domain package
+      uses: actions/upload-artifact@v4
+      with:
+        name: payment-nuget-package
+        path: nuget-packages/*.nupkg
+        retention-days: 30
+
+  pack-atm:
+    name: Pack ATM.Domain
+    runs-on: ubuntu-latest
+    needs: [test, sonarcloud]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore ATM/ATM.sln
+
+    - name: Build ATM.Domain
+      run: |
+        dotnet build ATM/ATM.Domain/ATM.Domain.csproj \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-restore
+
+    - name: Create NuGet package for ATM.Domain
+      run: |
+        cd ATM/ATM.Domain
+        dotnet pack \
+          --configuration ${{ env.BUILD_CONFIGURATION }} \
+          --no-build \
+          --output ../../nuget-packages \
+          -p:PackageVersion=1.0.${{ github.run_number }} \
+          -p:RepositoryUrl=${{ github.server_url }}/${{ github.repository }}.git \
+          -p:RepositoryType=git \
+          -p:PublishRepositoryUrl=true
+
+    - name: Upload ATM.Domain package
+      uses: actions/upload-artifact@v4
+      with:
+        name: atm-nuget-package
+        path: nuget-packages/*.nupkg
+        retention-days: 30
+
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    needs: [pack-payment, pack-atm]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Download all packages
+      uses: actions/download-artifact@v4
+      with:
+        path: ./nuget-packages
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Publish Payment.Domain to GitHub Packages
+      run: |
+        dotnet nuget push "./nuget-packages/payment-nuget-package/*.nupkg" \
+          --api-key ${{ secrets.GITHUB_TOKEN }} \
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+          --skip-duplicate
+
+    - name: Publish ATM.Domain to GitHub Packages
+      run: |
+        dotnet nuget push "./nuget-packages/atm-nuget-package/*.nupkg" \
+          --api-key ${{ secrets.GITHUB_TOKEN }} \
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+          --skip-duplicate
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ./nuget-packages/**/*.nupkg
+        generate_release_notes: true
+        draft: false
+        prerelease: ${{ contains(github.ref, 'develop') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

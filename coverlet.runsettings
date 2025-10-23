@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura,opencover</Format>
+          <Exclude>
+            <Filter>[*Tests]*</Filter>
+            <Filter>[*.Tests]*</Filter>
+          </Exclude>
+          <Include>
+            <Filter>[*]Payment.Domain*</Filter>
+            <Filter>[*]ATM.Domain*</Filter>
+          </Include>
+          <ExcludeByAttribute>
+            <Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+          </ExcludeByAttribute>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

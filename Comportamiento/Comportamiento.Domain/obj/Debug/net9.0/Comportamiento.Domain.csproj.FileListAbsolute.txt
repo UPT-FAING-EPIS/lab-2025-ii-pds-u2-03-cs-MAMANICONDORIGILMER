@@ -1,0 +1,12 @@
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\bin\Debug\net9.0\Comportamiento.Domain.deps.json
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\bin\Debug\net9.0\Comportamiento.Domain.dll
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\bin\Debug\net9.0\Comportamiento.Domain.pdb
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.GeneratedMSBuildEditorConfig.editorconfig
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.AssemblyInfoInputs.cache
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.AssemblyInfo.cs
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.csproj.CoreCompileInputs.cache
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.sourcelink.json
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.dll
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\refint\Comportamiento.Domain.dll
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\Comportamiento.Domain.pdb
+c:\repos\lab-2025-ii-pds-u2-03-cs-GabrielFMH\Comportamiento\Comportamiento.Domain\obj\Debug\net9.0\ref\Comportamiento.Domain.dll
